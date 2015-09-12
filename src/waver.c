@@ -52,7 +52,7 @@ int file_exists( const char* file );
 void check_opt_str_len( char* optarg, uint16_t len );
 void print_usage( void );
 
-track_t** create_track_metadata( int* cue_fd, int bin_fd, uint8_t* track_cnt );
+track_t** create_track_metadata( int bin_fd, uint8_t* track_cnt );
 void release_track_metadata( track_t** tracks, uint8_t tracks_len );
 void process_wav_header( int out_fd, track_t* track );
 void process_wav_payload( int in_fd, int out_fd, track_t* track );
@@ -293,7 +293,7 @@ void swapb( char* container, uint32_t container_len )
 }
 
 
-track_t** create_track_metadata( int* cue_fd, int bin_fd, uint8_t* track_cnt )
+track_t** create_track_metadata( int bin_fd, uint8_t* track_cnt )
 {
   uint16_t i;
   track_t** tracks = NULL;
@@ -320,12 +320,7 @@ track_t** create_track_metadata( int* cue_fd, int bin_fd, uint8_t* track_cnt )
 
   *track_cnt = 0;
 
-  /* 
-   * convert file descriptor to a file stream. 
-   * use the built in functions of file streams 
-   * to parse the cue file
-   */
-  if( ( cue_fs = fdopen( *cue_fd, "r" ) ) == NULL )
+  if( ( cue_fs = fopen( cuefile, "r" ) ) == NULL )
   {
     fprintf( stderr, "Failed to convert file descriptor, exiting ...\n" );
     exit( EXIT_FAILURE );
@@ -418,15 +413,12 @@ track_t** create_track_metadata( int* cue_fd, int bin_fd, uint8_t* track_cnt )
   /* :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: */
   
 
-  /* 
-   * file stream back to file descriptor
-   * the fd can be closed in the main function
-   */
-  if( ( *cue_fd = fileno( cue_fs ) ) == (-1) )
+  if( fclose( cue_fs ) != 0 )
   {
     fprintf( stderr, "Failed to convert file stream, exiting ...\n" );
     exit( EXIT_FAILURE );
   }
+  cue_fs = NULL;
   
   /* ...::: set up the tracks metadata :::... */
   /* :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: */
@@ -708,14 +700,18 @@ void write_tracks( track_t** tracks, uint8_t track_cnt, int bin_fd )
     
     if( out_fd < 0 )
     {
-      fprintf( stderr, "Failed to open output wav file, exiting ..." );
+      fprintf( stderr, "Failed to open output wav file at %d, exiting ...\n", i );
       exit( EXIT_FAILURE );
     }
     
     process_wav_header( out_fd, *( tracks + i ) );
     process_wav_payload( bin_fd, out_fd, *( tracks + i ) );
     
-    close( out_fd );
+    if( close( out_fd ) != 0 )
+    {
+      fprintf( stderr, "Failed to close wav file fd at %d, exiting ...\n", i );
+      exit( EXIT_FAILURE );
+    }
     out_fd = (-1);
     memset( track_no, '\0', 3 );
     memset( wav_name, '\0', PATH_LEN );
@@ -725,29 +721,30 @@ void write_tracks( track_t** tracks, uint8_t track_cnt, int bin_fd )
 
 int main( int argc, char* argv[] )
 {
-  int cue_fd;
-  int bin_fd;
+  int bin_fd = (-1);
  
   track_t** tracks = NULL;
   uint8_t track_cnt = 0;
 
   parse_arguments( argc, argv );
 
-  cue_fd = open( cuefile, O_RDONLY | O_SYNC );
-  bin_fd  = open( binfile, O_RDONLY | O_SYNC );
+  bin_fd = open( binfile, O_RDONLY | O_SYNC );
 
-  if( bin_fd < 0 || cue_fd < 0 )
+  if( bin_fd < 0 )
   {
-    fprintf( stderr, "Failed to open requested files, exiting ..." );
+    fprintf( stderr, "Failed to open requested files, exiting ...\n" );
     exit( EXIT_FAILURE );
   }
   
-  tracks = create_track_metadata( &cue_fd, bin_fd, &track_cnt );
+  tracks = create_track_metadata( bin_fd, &track_cnt );
   
   write_tracks( tracks, track_cnt, bin_fd );
  
-  close( cue_fd );
-  close( bin_fd );
+  if( close( bin_fd ) != 0 )
+  {
+    fprintf( stderr, "Failed to close bin file fd, exiting ...\n" );
+    exit( EXIT_FAILURE );
+  }
 
   release_track_metadata( tracks, track_cnt );
 
