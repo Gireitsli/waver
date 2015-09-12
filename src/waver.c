@@ -322,7 +322,7 @@ track_t** create_track_metadata( int bin_fd, uint8_t* track_cnt )
 
   if( ( cue_fs = fopen( cuefile, "r" ) ) == NULL )
   {
-    fprintf( stderr, "Failed to convert file descriptor, exiting ...\n" );
+    fprintf( stderr, "Failed to open cuefile, exiting ...\n" );
     exit( EXIT_FAILURE );
   }
 
@@ -415,7 +415,7 @@ track_t** create_track_metadata( int bin_fd, uint8_t* track_cnt )
 
   if( fclose( cue_fs ) != 0 )
   {
-    fprintf( stderr, "Failed to convert file stream, exiting ...\n" );
+    fprintf( stderr, "Failed to close cuefile, exiting ...\n" );
     exit( EXIT_FAILURE );
   }
   cue_fs = NULL;
