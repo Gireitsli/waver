@@ -38,7 +38,7 @@ CF  = -std=gnu99 -Wall -ggdb3 -O0
 LF  =
 
 # Libraries
-LB  =
+LB  = -lpthread
 
 INSTALL = install
 PREFIX  = /usr/local
@@ -50,7 +50,7 @@ waver:	waver.o
 	$(LD) -o waver waver.o $(LB)
 
 # compile results in object file
-waver.o: waver.c waver.h
+waver.o: waver.c waver.h cpuinfo.h
 	$(CC) $(CF) -c waver.c
 
 # run as root or sudoer

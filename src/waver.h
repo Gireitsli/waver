@@ -105,6 +105,9 @@
  */
 #define BLOCK_SIZE ( SECTOR_LEN * 14266L ) /* ~ 32 MiB */
 
+/* Multithreading defines */
+#define MAX_THREADS 64
+
 /* ****************************************************************** */
 
 
@@ -140,6 +143,16 @@ typedef struct
   uint8_t index_cnt;
 
 } cueentry_t;
+
+
+typedef struct
+{
+
+  track_t** tracks;
+  uint8_t   tracks_len;
+  uint8_t   cur_top;
+
+} track_pool_t;
 
 /* ****************************************************************** */
 

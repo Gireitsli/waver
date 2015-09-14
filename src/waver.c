@@ -24,6 +24,7 @@
 */
 
 #include "waver.h"
+#include "cpuinfo.h"
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -33,7 +34,7 @@
 #include <limits.h>
 #include <sys/stat.h>
 #include <string.h>
-
+#include <pthread.h>
 
 /* "private" defines */
 #define PATH_LEN  1024
@@ -52,11 +53,12 @@ int file_exists( const char* file );
 void check_opt_str_len( char* optarg, uint16_t len );
 void print_usage( void );
 
-track_t** create_track_metadata( int bin_fd, uint8_t* track_cnt );
+track_t** create_track_metadata( uint8_t* track_cnt );
 void release_track_metadata( track_t** tracks, uint8_t tracks_len );
 void process_wav_header( int out_fd, track_t* track );
 void process_wav_payload( int in_fd, int out_fd, track_t* track );
-void write_tracks( track_t** tracks, uint8_t track_cnt, int bin_fd );
+void* write_track( void* arg );
+track_t* get_track_from_pool( void );
 int64_t try_strtol( char* str );
 void tokenize( char* str, const char* del, char** tokens, uint32_t exp_tokens );
 
@@ -65,9 +67,16 @@ void tokenize( char* str, const char* del, char** tokens, uint32_t exp_tokens );
 /* globals */
 uint8_t swap_bytes = 0;
 uint8_t verbose = 0;
+
 char cuefile[ PATH_LEN ]   = { '\0' };
 char binfile[ PATH_LEN ]   = { '\0' };
 char base_name[ NAME_LEN ] = { '\0' };
+
+int64_t  n_threads = 0;
+
+track_pool_t track_pool;
+
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* ****************************************************************** */
 
@@ -75,14 +84,18 @@ void print_usage( void )
 {
   fprintf( stdout, "\nUsage: \n"
                    " waver -b binfile -c cuefile -n basename "
-                   "[-s] [-v]\n\n"
-                   "=============================================\n"
-                   " Example: waver -b foo.bin -c foo.cue -n bar\n" 
-                   "=============================================\n\n"
+                   "[-s] [-v] [-t nothreads]\n\n"
+                   "=====================================================\n"
+                   " Example: waver -b foo.bin -c foo.cue -n bar -s -t 4\n" 
+                   "=====================================================\n\n"
                    "   -v   Verbose output\n" 
                    "   -s   Swap bytes in audio tracks\n"
                    "        (swaps every pair of bytes\n"
-                   "        in the binary audio stream)\n\n" );
+                   "        in the binary audio stream)\n"
+                   "   -t   Specify a number of threads\n" 
+                   "        you want to use for waving.\n"
+                   "        Default value: No of CPUs on\n"
+                   "        your machine.\n\n" );
 }
 
 
@@ -113,7 +126,7 @@ void parse_arguments( int argc, char* argv[] )
   uint8_t cueflag = 0;
   uint8_t nameflag = 0;
   
-  while( ( option = getopt( argc, argv, "b:c:n:sv" ) ) != -1 )
+  while( ( option = getopt( argc, argv, "b:c:n:st:v" ) ) != -1 )
   {
     switch( option )
     {
@@ -155,6 +168,22 @@ void parse_arguments( int argc, char* argv[] )
         swap_bytes = 1;
         break;
       }
+      case 't':
+      {
+        check_opt_str_len( optarg, NAME_LEN );
+        n_threads = try_strtol( optarg );
+
+        if( n_threads > MAX_THREADS )
+        {
+          n_threads = MAX_THREADS;
+        }
+        else if( n_threads < 1 )
+        {
+          n_threads = 1;
+        }
+        
+        break;
+      }
       case 'v':
       {
         verbose = 1;
@@ -188,6 +217,17 @@ void parse_arguments( int argc, char* argv[] )
     print_usage();
     exit( EXIT_FAILURE );
   }
+
+  if( n_threads == 0 )
+  {
+    n_threads = getNumCPUs();
+    if( n_threads > MAX_THREADS || n_threads < 1 )
+    {
+      n_threads = 1;
+    }
+  }
+  fprintf( stdout, "using %ld threads for waving ...\n", n_threads );
+
 }
 
 
@@ -293,14 +333,18 @@ void swapb( char* container, uint32_t container_len )
 }
 
 
-track_t** create_track_metadata( int bin_fd, uint8_t* track_cnt )
+track_t** create_track_metadata( uint8_t* track_cnt )
 {
   uint16_t i;
+  
   track_t** tracks = NULL;
   track_t* cur_track = NULL;
   track_t* prev_track = NULL;
+  
   FILE* cue_fs = NULL;
   
+  int bin_fd = (-1);
+
   char** lines = NULL;
   uint16_t lines_cnt = 0;
   
@@ -480,10 +524,23 @@ track_t** create_track_metadata( int bin_fd, uint8_t* track_cnt )
     }  
   }
 
+  
+  if( ( bin_fd = open( binfile, O_RDONLY | O_SYNC ) ) < 0 )
+  {
+    fprintf( stderr, "Failed to open bin file to get the last byte, exiting, ...\n" );
+    exit( EXIT_FAILURE );
+  }
+
   /* set endframe, endbyte and size_byte for the last track */
   if( ( last_bin_byte = lseek( bin_fd, 0, SEEK_END ) ) == (-1) )
   {
     fprintf( stderr, "Failed to seek last byte, exiting ...\n" );
+    exit( EXIT_FAILURE );
+  }
+
+  if( close( bin_fd ) != 0 )
+  {
+    fprintf( stderr, "Failed to close bin file for seeking last byte, exiting ...\n" );
     exit( EXIT_FAILURE );
   }
 
@@ -679,18 +736,68 @@ void process_wav_payload( int in_fd, int out_fd, track_t* track )
 }
 
 
-void write_tracks( track_t** tracks, uint8_t track_cnt, int bin_fd )
+track_t* get_track_from_pool( void )
 {
+  track_t* track = NULL;
+  
+  if( track_pool.cur_top < track_pool.tracks_len )
+  {
+    track = *( track_pool.tracks + track_pool.cur_top );
+    track_pool.cur_top++;
+  }
+
+  return track;
+}
+
+
+/* thread function */
+void* write_track( void* arg )
+{
+  uint32_t tid;
+  int bin_fd = (-1);
   int out_fd = (-1);
-  uint8_t i;
+  
   char wav_name[ PATH_LEN ] = { '\0' };
   char track_no[ 3 ] = { '\0' };
+  track_t* track = NULL;
+ 
+  tid = ( uint32_t )( ( int64_t )arg );
 
-  for( i = 0; i < track_cnt; i++ )
+  fprintf( stdout, "started worker thread with id %02d ...\n", tid );
+  fflush( stdout );
+
+  /* critical section. get file descriptor for binary file */
+  /* **~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~** */
+  pthread_mutex_lock( &lock );
+  bin_fd = open( binfile, O_RDONLY | O_SYNC );
+  pthread_mutex_unlock( &lock );
+  /* **~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~** */
+
+  if( bin_fd < 0 )
   {
+    fprintf( stderr, "Failed to open requested files, exiting ...\n" );
+    fflush( stderr );
+    exit( EXIT_FAILURE );
+  }
+  
+  while( 1 )
+  {
+    /* critical section. get track from track pool */
+    /* **~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~** */
+    pthread_mutex_lock( &lock );
+    track = get_track_from_pool();
+    pthread_mutex_unlock( &lock );
+    /* **~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~**~** */
+    
+    /* if no more tracks in pool, we can terminate this thread by breaking this loop. */
+    if( track == NULL )
+    {
+      break;
+    }
+
     strncat( wav_name, base_name, ( PATH_LEN - 7 ) );
     strncat( wav_name, "_", 1 );
-    sprintf( track_no, "%02d", ( i + 1 ) );
+    sprintf( track_no, "%02d", track->number );
     strncat( wav_name, track_no, 2 );
     strncat( wav_name, WAV_EXTENSION, 4 );
     
@@ -700,52 +807,93 @@ void write_tracks( track_t** tracks, uint8_t track_cnt, int bin_fd )
     
     if( out_fd < 0 )
     {
-      fprintf( stderr, "Failed to open output wav file at %d, exiting ...\n", i );
+      fprintf( stderr, "Failed to open output wav file at %d, exiting ...\n", track->number );
+      fflush( stderr );
       exit( EXIT_FAILURE );
     }
     
-    process_wav_header( out_fd, *( tracks + i ) );
-    process_wav_payload( bin_fd, out_fd, *( tracks + i ) );
+    process_wav_header( out_fd, track );
+    process_wav_payload( bin_fd, out_fd, track );
     
     if( close( out_fd ) != 0 )
     {
-      fprintf( stderr, "Failed to close wav file fd at %d, exiting ...\n", i );
+      fprintf( stderr, "Failed to close wav file fd at %d, exiting ...\n", track->number );
+      fflush( stderr );
       exit( EXIT_FAILURE );
     }
     out_fd = (-1);
-    memset( track_no, '\0', 3 );
+    
     memset( wav_name, '\0', PATH_LEN );
+    memset( track_no, '\0', 3 );
   }
+
+  if( close( bin_fd ) != 0 )
+  {
+    fprintf( stderr, "Failed to close bin file fd at tid %02d, exiting ...\n", tid );
+    fflush( stderr );
+    exit( EXIT_FAILURE );
+  }
+  fprintf( stdout, "thread with id %d has nothing more to do "
+                   "and will terminate now.\n", tid );
+  fflush( stdout );
+  pthread_exit( NULL );
+  
 }
 
 
 int main( int argc, char* argv[] )
 {
-  int bin_fd = (-1);
- 
   track_t** tracks = NULL;
   uint8_t track_cnt = 0;
-
+  
+  pthread_t threads[ MAX_THREADS ];
+  int errsv;
+  int64_t i;
+  
   parse_arguments( argc, argv );
 
-  bin_fd = open( binfile, O_RDONLY | O_SYNC );
+  tracks = create_track_metadata( &track_cnt );
 
-  if( bin_fd < 0 )
+  track_pool.tracks     = tracks;
+  track_pool.tracks_len = track_cnt;
+  track_pool.cur_top    = 0;
+  
+  /* start and join threads, organize mutex, ...  */
+  /* :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: */
+  
+  if( pthread_mutex_init( &lock, NULL ) != 0 )
   {
-    fprintf( stderr, "Failed to open requested files, exiting ...\n" );
+    fprintf( stderr, "mutex init failed, exiting ...\n");
     exit( EXIT_FAILURE );
   }
-  
-  tracks = create_track_metadata( bin_fd, &track_cnt );
-  
-  write_tracks( tracks, track_cnt, bin_fd );
+
+  for( i = 0; i < n_threads; i++ )
+  {
+    errsv = pthread_create( &threads[ i ], NULL, write_track, ( void* )i );
+    if( errsv != 0 )
+    {
+      fprintf( stderr, "can't create thread. reason: [ %s ]", strerror( errsv ) );
+      exit( EXIT_FAILURE );
+    }
+  }
+  for( i = 0; i < n_threads; i++ )
+  {
+    errsv = pthread_join( threads[ i ], NULL );
+    if( errsv != 0 )
+    {
+      fprintf( stderr, "can't join thread. reason: [ %s ]", strerror( errsv ) );
+      exit( EXIT_FAILURE );
+    }
+  }
+
+  if( pthread_mutex_destroy( &lock ) != 0 )
+  {
+    fprintf( stderr, "mutex destroy failed, exiting ...\n");
+    exit( EXIT_FAILURE );
+  }
+
+  /* :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: */
  
-  if( close( bin_fd ) != 0 )
-  {
-    fprintf( stderr, "Failed to close bin file fd, exiting ...\n" );
-    exit( EXIT_FAILURE );
-  }
-
   release_track_metadata( tracks, track_cnt );
 
   return EXIT_SUCCESS;
