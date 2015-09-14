@@ -25,3 +25,7 @@ Create WAV files from a Disc At Once (DAO) data stream.
 2. Convert the table of contents file to a cue file: `toc2cue foo.toc foo.cue`
 3. Create WAV files from the dao stream: `waver -b data.bin -c foo.cue -n output_wav -s` This will create the WAV files according to the track information contained in the cue file. -s swaps the bytes of the data stream.
 
+## Credits
+* **Heikki Hannikainen** <hessu|at|hes.iki.fi> For sharing the sources of his "bchunk", which served important informations for this implementation.
+* **Markus Thaler** <tham|at|zhaw.ch> For the cpuinfo header to determine the no of CPUs available on a machine.
+
