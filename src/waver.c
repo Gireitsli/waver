@@ -63,6 +63,9 @@ track_t* get_track_from_pool( void );
 int64_t try_strtol( char* str );
 void tokenize( char* str, const char* del, char** tokens, uint32_t exp_tokens );
 
+uint8_t is_32_bit( void );
+uint8_t is_64_bit( void );
+
 /* ****************************************************************** */
 
 /* globals */
@@ -73,7 +76,7 @@ char cuefile[ PATH_LEN ]   = { '\0' };
 char binfile[ PATH_LEN ]   = { '\0' };
 char base_name[ NAME_LEN ] = { '\0' };
 
-int64_t  n_threads = 0;
+int32_t  n_threads = 0;
 
 track_pool_t track_pool;
 
@@ -97,6 +100,18 @@ void print_usage( void )
                    "        you want to use for waving.\n"
                    "        Default value: No of CPUs on\n"
                    "        your machine.\n\n" );
+}
+
+
+uint8_t is_32_bit( void ) 
+{
+  return sizeof( void* ) == 4;
+}
+
+
+uint8_t is_64_bit( void ) 
+{
+  return sizeof( void* ) == 8;
 }
 
 
@@ -172,7 +187,7 @@ void parse_arguments( int argc, char* argv[] )
       case 't':
       {
         check_opt_str_len( optarg, NAME_LEN );
-        n_threads = try_strtol( optarg );
+        n_threads = ( int32_t )try_strtol( optarg );
 
         if( n_threads > MAX_THREADS )
         {
@@ -227,7 +242,8 @@ void parse_arguments( int argc, char* argv[] )
       n_threads = 1;
     }
   }
-  fprintf( stdout, "using %ld threads for waving ...\n", n_threads );
+  fprintf( stdout, "using %d threads for waving ...\n", 
+           n_threads );
 
 }
 
@@ -766,7 +782,7 @@ void* write_track( void* arg )
   char track_no[ 3 ] = { '\0' };
   track_t* track = NULL;
  
-  tid = ( uint32_t )( ( int64_t )arg );
+  tid = ( uint32_t )( ( long int )arg );
 
   fprintf( stdout, "started worker thread with id %02d ...\n", tid );
   fflush( stdout );
@@ -854,7 +870,7 @@ int main( int argc, char* argv[] )
   
   pthread_t threads[ MAX_THREADS ];
   int errsv;
-  int64_t i;
+  int32_t i;
   
   parse_arguments( argc, argv );
 
@@ -877,7 +893,12 @@ int main( int argc, char* argv[] )
 
   for( i = 0; i < n_threads; i++ )
   {
+    #if __SIZEOF_POINTER__ == 4
     errsv = pthread_create( &threads[ i ], NULL, write_track, ( void* )i );
+    #elif __SIZEOF_POINTER__ == 8
+    errsv = pthread_create( &threads[ i ], NULL, write_track, ( void* )( ( int64_t )i ) );
+    #endif
+    
     if( errsv != 0 )
     {
       fprintf( stderr, "can't create thread. reason: [ %s ]", strerror( errsv ) );
