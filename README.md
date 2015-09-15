@@ -32,7 +32,7 @@ Create WAV files from a Disc At Once (DAO) data stream.
 | 620M  | 2  | 1.34  | 0.70 | 1.91 | 1.75 |
 | 620M  | 4  | 1.14  | 0.81 | 2.90 | 2.05 |
 | 620M  | 8  | 0.85  | 0.89 | 2.57 | 2.75 |
-Performed on: CPU: "Intel(R) Core(TM) i7 CPU 930 @ 2.80GHz", RAM: 24 GiB, HDD: Kingston SSD
+Performed on: CPU: "Intel(R) Core(TM) i7 CPU 930 @ 2.80GHz", RAM: 24 GiB, HDD: Kingston SSD. data written on tmpfs (/tmp)
 
 ## Credits
 * **Heikki Hannikainen** \<hessu\|at\|hes.iki.fi\> For sharing the sources of his "bchunk", which served important informations for this implementation.
