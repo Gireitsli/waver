@@ -50,7 +50,7 @@ waver:	waver.o
 	$(LD) -o waver waver.o $(LB)
 
 # compile results in object file
-waver.o: waver.c waver.h cpuinfo.h
+waver.o: waver.c waver.h mtimer.h cpuinfo.h
 	$(CC) $(CF) -c waver.c
 
 # run as root or sudoer

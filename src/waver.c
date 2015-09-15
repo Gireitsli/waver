@@ -25,6 +25,7 @@
 
 #include "waver.h"
 #include "cpuinfo.h"
+#include "mtimer.h"
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -751,6 +752,10 @@ track_t* get_track_from_pool( void )
 
 
 /* thread function */
+/* 
+ * writing to stdout or stderr is threadsafe, so for these operations
+ * we don't need a mutex.
+ */
 void* write_track( void* arg )
 {
   uint32_t tid;
@@ -843,6 +848,7 @@ void* write_track( void* arg )
 
 int main( int argc, char* argv[] )
 {
+  ttimer_t timer;
   track_t** tracks = NULL;
   uint8_t track_cnt = 0;
   
@@ -851,6 +857,8 @@ int main( int argc, char* argv[] )
   int64_t i;
   
   parse_arguments( argc, argv );
+
+  startTTimer( timer );
 
   tracks = create_track_metadata( &track_cnt );
 
@@ -896,6 +904,10 @@ int main( int argc, char* argv[] )
  
   release_track_metadata( tracks, track_cnt );
 
+  stopTTimer( timer );
+
+  printTTime( timer );
+  
   return EXIT_SUCCESS;
 }
 

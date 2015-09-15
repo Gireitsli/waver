@@ -25,7 +25,16 @@ Create WAV files from a Disc At Once (DAO) data stream.
 2. Convert the table of contents file to a cue file: `toc2cue foo.toc foo.cue`
 3. Create WAV files from the dao stream: `waver -b data.bin -c foo.cue -n output_wav -s` This will create the WAV files according to the track information contained in the cue file. -s swaps the bytes of the data stream.
 
+## waver performance test results
+| bin file size [byte]  | n threads  | elapsed [s]  | sys [s] | user [s] | speedup [ T(1)/T(P) ] |
+|---|---|---|---|---|---|
+| 620M  | 1  | 2.34  | 0.47 | 1.85 | - |
+| 620M  | 2  | 1.34  | 0.70 | 1.91 | 1.75 |
+| 620M  | 4  | 1.14  | 0.81 | 2.90 | 2.05 |
+| 620M  | 8  | 0.85  | 0.89 | 2.57 | 2.75 |
+Performed on: CPU: "Intel(R) Core(TM) i7 CPU 930 @ 2.80GHz", RAM: 24 GiB, HDD: Kingston SSD
+
 ## Credits
 * **Heikki Hannikainen** \<hessu\|at\|hes.iki.fi\> For sharing the sources of his "bchunk", which served important informations for this implementation.
-* **Markus Thaler** \<tham\|at\|zhaw.ch\> For the cpuinfo header to determine the no of CPUs available on a machine.
+* **Markus Thaler** \<tham\|at\|zhaw.ch\> For the cpuinfo header to determine the no of CPUs available on a machine and also his famous timer api "mtimer" to get timer values from the kernel.
 
