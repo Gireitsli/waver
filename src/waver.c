@@ -24,6 +24,7 @@
 */
 
 #include "waver.h"
+#include "mtimer.h"
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -721,12 +722,16 @@ void write_tracks( track_t** tracks, uint8_t track_cnt, int bin_fd )
 
 int main( int argc, char* argv[] )
 {
+  ttimer_t timer;
+
   int bin_fd = (-1);
  
   track_t** tracks = NULL;
   uint8_t track_cnt = 0;
 
   parse_arguments( argc, argv );
+
+  startTTimer( timer );
 
   bin_fd = open( binfile, O_RDONLY | O_SYNC );
 
@@ -747,6 +752,10 @@ int main( int argc, char* argv[] )
   }
 
   release_track_metadata( tracks, track_cnt );
+
+  stopTTimer( timer );
+
+  printTTime( timer );
 
   return EXIT_SUCCESS;
 }
