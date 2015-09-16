@@ -858,10 +858,10 @@ int main( int argc, char* argv[] )
   /* 
    * to safely pass a unique tid to the pthread_create
    * function. Better than boxing integer values into void pointers.
-   * with this array of int pointers we just can pass pointers,
+   * with this array of integers we just can pass their addresses,
    * without checking on which architecutre we are running.
    * */
-  uint32_t* tids[ MAX_THREADS ];
+  uint32_t tids[ MAX_THREADS ];
   
   int errsv;
   int32_t i;
@@ -887,9 +887,9 @@ int main( int argc, char* argv[] )
 
   for( i = 0; i < n_threads; i++ )
   {
-    *tids[ i ] = i;
+    tids[ i ] = i;
     errsv = pthread_create( &threads[ i ], NULL, 
-                            write_track, ( void* )tids[ i ] );
+                            write_track, ( void* )( &tids[ i ] ) );
     
     if( errsv != 0 )
     {
