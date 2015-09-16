@@ -63,9 +63,6 @@ track_t* get_track_from_pool( void );
 int64_t try_strtol( char* str );
 void tokenize( char* str, const char* del, char** tokens, uint32_t exp_tokens );
 
-uint8_t is_32_bit( void );
-uint8_t is_64_bit( void );
-
 /* ****************************************************************** */
 
 /* globals */
@@ -88,7 +85,7 @@ void print_usage( void )
 {
   fprintf( stdout, "\nUsage: \n"
                    " waver -b binfile -c cuefile -n basename "
-                   "[-s] [-v] [-t nothreads]\n\n"
+                   "[-s] [-v] [-t numthreads]\n\n"
                    "=====================================================\n"
                    " Example: waver -b foo.bin -c foo.cue -n bar -s -t 4\n" 
                    "=====================================================\n\n"
@@ -100,18 +97,6 @@ void print_usage( void )
                    "        you want to use for waving.\n"
                    "        Default value: No of CPUs on\n"
                    "        your machine.\n\n" );
-}
-
-
-uint8_t is_32_bit( void ) 
-{
-  return sizeof( void* ) == 4;
-}
-
-
-uint8_t is_64_bit( void ) 
-{
-  return sizeof( void* ) == 8;
 }
 
 
@@ -782,7 +767,7 @@ void* write_track( void* arg )
   char track_no[ 3 ] = { '\0' };
   track_t* track = NULL;
  
-  tid = ( uint32_t )( ( long int )arg );
+  tid = *( ( uint32_t* )arg );
 
   fprintf( stdout, "started worker thread with id %02d ...\n", tid );
   fflush( stdout );
@@ -869,6 +854,15 @@ int main( int argc, char* argv[] )
   uint8_t track_cnt = 0;
   
   pthread_t threads[ MAX_THREADS ];
+  
+  /* 
+   * to safely pass a unique tid to the pthread_create
+   * function. Better than boxing integer values into void pointers.
+   * with this array of int pointers we just can pass pointers,
+   * without checking on which architecutre we are running.
+   * */
+  uint32_t* tids[ MAX_THREADS ];
+  
   int errsv;
   int32_t i;
   
@@ -893,15 +887,14 @@ int main( int argc, char* argv[] )
 
   for( i = 0; i < n_threads; i++ )
   {
-    #if __SIZEOF_POINTER__ == 4
-    errsv = pthread_create( &threads[ i ], NULL, write_track, ( void* )i );
-    #elif __SIZEOF_POINTER__ == 8
-    errsv = pthread_create( &threads[ i ], NULL, write_track, ( void* )( ( int64_t )i ) );
-    #endif
+    *tids[ i ] = i;
+    errsv = pthread_create( &threads[ i ], NULL, 
+                            write_track, ( void* )tids[ i ] );
     
     if( errsv != 0 )
     {
-      fprintf( stderr, "can't create thread. reason: [ %s ]", strerror( errsv ) );
+      fprintf( stderr, "can't create thread. reason: [ %s ]\n", 
+               strerror( errsv ) );
       exit( EXIT_FAILURE );
     }
   }
@@ -910,7 +903,8 @@ int main( int argc, char* argv[] )
     errsv = pthread_join( threads[ i ], NULL );
     if( errsv != 0 )
     {
-      fprintf( stderr, "can't join thread. reason: [ %s ]", strerror( errsv ) );
+      fprintf( stderr, "can't join thread. reason: [ %s ]\n", 
+               strerror( errsv ) );
       exit( EXIT_FAILURE );
     }
   }
