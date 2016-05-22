@@ -35,15 +35,17 @@
 #define WAVER_H_
 
 /* we need to define gnu source to make use 
- * of the function strcasestr since this function
- * is a nonstandard extension.
+ * of the functions strcasestr and syncfs 
+ * since these functions are nonstandard 
+ * extensions.
+ *
  * must be defined before any include.
  *
  * SUCH A MICKEY MOUSE THING!!! ...
  *
  * if it causes too many problems on other platforms
- * than GNU/Linux, we replace the function 
- * "strcasestr" in later releases.
+ * than GNU/Linux, we replace the functions 
+ * "strcasestr" and "syncfs" in later releases.
  */
 #define _GNU_SOURCE
 

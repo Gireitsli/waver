@@ -62,6 +62,7 @@ void* write_track( void* arg );
 track_t* get_track_from_pool( void );
 int64_t try_strtol( char* str );
 void tokenize( char* str, const char* del, char** tokens, uint32_t exp_tokens );
+void flush_fs_buffer( int fd );
 
 /* ****************************************************************** */
 
@@ -331,6 +332,16 @@ void swapb( char* container, uint32_t container_len )
     tmp_byte = *( container + i );
     *( container + i ) = *( container + i + 1 );
     *( container + i + 1 ) = tmp_byte;
+  }
+}
+
+
+void flush_fs_buffer( int fd )
+{
+  if( syncfs( fd ) != 0 )
+  {
+    fprintf( stderr, "Failed to commit buffer cache to disk, exiting ...\n" );
+    exit( EXIT_FAILURE );
   }
 }
 
@@ -820,6 +831,11 @@ void* write_track( void* arg )
     
     process_wav_header( out_fd, track );
     process_wav_payload( bin_fd, out_fd, track );
+    
+    /* flush file system buffer 
+     * to write down the processed track 
+     * to persistent device */
+    flush_fs_buffer( out_fd );
     
     if( close( out_fd ) != 0 )
     {
